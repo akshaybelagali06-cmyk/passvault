@@ -1,98 +1,118 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+/**
+ * Splash screen — boot decision point.
+ *
+ * Shows PassVault logo + name with a fade-in animation, then:
+ *   - no PIN stored → replace with /setup
+ *   - PIN stored    → replace with /lock
+ */
+import { router } from 'expo-router';
+import { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withDelay,
+  Easing,
+} from 'react-native-reanimated';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Colors, Radii, Spacing, Typography } from '@/constants/theme';
+import { isPinSet } from '@/services/pin';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+const BG = Colors.dark.background;
+
+export default function SplashScreen() {
+  // Logo + text fade in
+  const logoOpacity = useSharedValue(0);
+  const logoScale   = useSharedValue(0.85);
+  const textOpacity = useSharedValue(0);
+
+  const logoStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [{ scale: logoScale.value }],
+  }));
+  const textStyle = useAnimatedStyle(() => ({
+    opacity: textOpacity.value,
+  }));
+
+  useEffect(() => {
+    // Animate in — assigning to .value is the correct Reanimated v4 pattern
+    // eslint-disable-next-line react-hooks/immutability
+    logoOpacity.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.quad) });
+    // eslint-disable-next-line react-hooks/immutability
+    logoScale.value   = withTiming(1, { duration: 500, easing: Easing.out(Easing.quad) });
+    // eslint-disable-next-line react-hooks/immutability
+    textOpacity.value = withDelay(300, withTiming(1, { duration: 400 }));
+
+    // After animation, decide where to go
+    const timer = setTimeout(async () => {
+      try {
+        const pinExists = await isPinSet();
+        if (pinExists) {
+          router.replace('/lock');
+        } else {
+          router.replace('/setup');
+        }
+      } catch {
+        // If secure store fails (e.g. in bare JS env), go to setup
+        router.replace('/setup');
+      }
+    }, 900);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <View style={styles.container}>
+      {/* Shield icon (emoji placeholder until a real SVG asset is added) */}
+      <Animated.View style={[styles.logoWrapper, logoStyle]}>
+        <View style={styles.shieldBg}>
+          <Animated.Text style={styles.shieldEmoji}>🔐</Animated.Text>
+        </View>
+      </Animated.View>
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      <Animated.View style={[styles.textBlock, textStyle]}>
+        <Animated.Text style={styles.appName}>PassVault</Animated.Text>
+        <Animated.Text style={styles.tagline}>Your passwords. Offline. Secure.</Animated.Text>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
+    backgroundColor: BG,
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
     gap: Spacing.four,
   },
-  title: {
-    textAlign: 'center',
+  logoWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  code: {
-    textTransform: 'uppercase',
+  shieldBg: {
+    width: 100,
+    height: 100,
+    borderRadius: Radii.xl,
+    backgroundColor: Colors.dark.accentMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  shieldEmoji: {
+    fontSize: 48,
+  },
+  textBlock: {
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  appName: {
+    ...Typography.displaySm,
+    color: Colors.dark.text,
+  },
+  tagline: {
+    ...Typography.caption,
+    color: Colors.dark.textSecondary,
   },
 });
