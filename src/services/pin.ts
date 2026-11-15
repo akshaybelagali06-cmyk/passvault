@@ -8,13 +8,13 @@ import * as ExpoCrypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { argon2idAsync } from '@noble/hashes/argon2.js';
 
-const KEYS = {
-  PIN_RECORD: 'pv:pin:record',
-  LOCKOUT: 'pv:pin:lockout',
+export const SECURE_STORE_KEYS = {
+  PIN_RECORD: 'pv.pin.record',
+  LOCKOUT: 'pv.pin.lockout',
 } as const;
 
 const RECORD_VERSION = 1;
-const KDF_PARAMS = { t: 2, m: 19456, p: 1, dkLen: 32 } as const;
+const KDF_PARAMS_V2 = { t: 1, m: 4096, p: 1, dkLen: 32 } as const;
 
 interface KdfParams {
   t: number;
@@ -90,7 +90,7 @@ function validateParams(value: unknown): KdfParams {
 
   if (
     !isInteger(params.t) || params.t < 1 || params.t > 10 ||
-    !isInteger(params.m) || params.m < 8192 || params.m > 262144 ||
+    !isInteger(params.m) || params.m < 4096 || params.m > 262144 ||
     !isInteger(params.p) || params.p < 1 || params.p > 4 ||
     !isInteger(params.dkLen) || params.dkLen !== 32
   ) {
@@ -142,12 +142,12 @@ function parseRecord(serialized: string): PinRecord {
 }
 
 async function readRecord(): Promise<PinRecord | null> {
-  const serialized = await SecureStore.getItemAsync(KEYS.PIN_RECORD);
+  const serialized = await SecureStore.getItemAsync(SECURE_STORE_KEYS.PIN_RECORD);
   return serialized === null ? null : parseRecord(serialized);
 }
 
 async function readLockout(): Promise<LockoutState> {
-  const serialized = await SecureStore.getItemAsync(KEYS.LOCKOUT);
+  const serialized = await SecureStore.getItemAsync(SECURE_STORE_KEYS.LOCKOUT);
   if (serialized === null) return { count: 0 };
 
   let value: unknown;
@@ -176,7 +176,7 @@ async function readLockout(): Promise<LockoutState> {
 }
 
 async function writeLockout(state: LockoutState): Promise<void> {
-  await SecureStore.setItemAsync(KEYS.LOCKOUT, JSON.stringify(state));
+  await SecureStore.setItemAsync(SECURE_STORE_KEYS.LOCKOUT, JSON.stringify(state));
 }
 
 async function hashPIN(pin: string, salt: Uint8Array, params: KdfParams): Promise<Uint8Array> {
@@ -193,7 +193,7 @@ function recordFrom(pinHash: Uint8Array, salt: Uint8Array): PinRecord {
     version: RECORD_VERSION,
     hashHex: uint8ToHex(pinHash),
     saltHex: uint8ToHex(salt),
-    params: KDF_PARAMS,
+    params: KDF_PARAMS_V2,
   };
 }
 
@@ -206,8 +206,8 @@ async function writePinRecord(pin: string): Promise<void> {
     }
   }
 
-  const hash = await hashPIN(pin, salt, KDF_PARAMS);
-  await SecureStore.setItemAsync(KEYS.PIN_RECORD, JSON.stringify(recordFrom(hash, salt)));
+  const hash = await hashPIN(pin, salt, KDF_PARAMS_V2);
+  await SecureStore.setItemAsync(SECURE_STORE_KEYS.PIN_RECORD, JSON.stringify(recordFrom(hash, salt)));
 }
 
 export function validatePin(pin: string): string | null {
@@ -231,7 +231,7 @@ export async function createPin(pin: string): Promise<void> {
   if (await readRecord()) throw new Error('PassVault: a PIN already exists');
 
   await writePinRecord(pin);
-  await SecureStore.deleteItemAsync(KEYS.LOCKOUT);
+  await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.LOCKOUT);
 }
 
 export type VerifyResult =
@@ -271,7 +271,7 @@ async function verifyPinUnlocked(pin: string): Promise<VerifyResult> {
   }
 
   if (difference === 0) {
-    await SecureStore.deleteItemAsync(KEYS.LOCKOUT);
+    await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.LOCKOUT);
     return { ok: true };
   }
 
@@ -297,7 +297,7 @@ export async function changePin(oldPin: string, newPin: string): Promise<void> {
   }
 
   await writePinRecord(newPin);
-  await SecureStore.deleteItemAsync(KEYS.LOCKOUT);
+  await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.LOCKOUT);
 }
 
 export async function getFailedAttemptState(): Promise<

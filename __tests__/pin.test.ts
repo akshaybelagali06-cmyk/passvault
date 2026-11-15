@@ -1,4 +1,10 @@
-import { lockoutMs, validatePin } from '@/services/pin';
+import { lockoutMs, SECURE_STORE_KEYS, validatePin } from '@/services/pin';
+
+test('all SecureStore keys use the supported format', () => {
+  for (const key of Object.values(SECURE_STORE_KEYS)) {
+    expect(key).toMatch(/^[\w.-]+$/);
+  }
+});
 
 describe('validatePin', () => {
   test('accepts a six-digit PIN that is not predictable', () => {

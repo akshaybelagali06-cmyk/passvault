@@ -14,6 +14,7 @@ type BootState = 'loading' | 'error';
 
 export default function SplashScreen() {
   const [state, setState] = useState<BootState>('loading');
+  const [errorName, setErrorName] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -23,8 +24,18 @@ export default function SplashScreen() {
           if (!active) return;
           router.replace(pinExists ? '/lock' : '/setup');
         })
-        .catch(() => {
-          if (active) setState('error');
+        .catch((error: unknown) => {
+          if (__DEV__) {
+            console.log(
+              'PassVault startup error:',
+              error instanceof Error ? error.name : 'UnknownError',
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+          if (active) {
+            setErrorName(error instanceof Error ? error.name : 'UnknownError');
+            setState('error');
+          }
         });
     }, 900);
 
@@ -35,10 +46,23 @@ export default function SplashScreen() {
   }, []);
 
   const retry = () => {
+    setErrorName(null);
     setState('loading');
     void isPinSet()
-      .then((pinExists) => router.replace(pinExists ? '/lock' : '/setup'))
-      .catch(() => setState('error'));
+      .then((pinExists) => {
+        router.replace(pinExists ? '/lock' : '/setup');
+      })
+      .catch((error: unknown) => {
+        if (__DEV__) {
+          console.log(
+            'PassVault startup error:',
+            error instanceof Error ? error.name : 'UnknownError',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        setErrorName(error instanceof Error ? error.name : 'UnknownError');
+        setState('error');
+      });
   };
 
   return (
@@ -51,6 +75,7 @@ export default function SplashScreen() {
             <Text style={styles.subtitle}>
               Your secure PIN data could not be read. Try again without creating a new PIN.
             </Text>
+            {__DEV__ && errorName ? <Text style={styles.errorName}>{errorName}</Text> : null}
             <GlassButton onPress={retry} variant="secondary" style={styles.retry}>
               Retry
             </GlassButton>
@@ -91,6 +116,12 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontFamily: 'Inter',
     color: Colors.dark.textSecondary,
+    textAlign: 'center',
+  },
+  errorName: {
+    ...Typography.caption,
+    fontFamily: 'Inter',
+    color: Colors.dark.danger,
     textAlign: 'center',
   },
   retry: {

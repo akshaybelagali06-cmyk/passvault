@@ -1,7 +1,7 @@
 import { BlurTargetView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { PropsWithChildren, useEffect, useRef, type ComponentRef } from 'react';
 import { StyleSheet, View } from 'react-native';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -14,7 +14,25 @@ import Animated, {
 import { Aurora } from '@/constants/theme';
 import { GlassContext, getGlassSupport } from '@/hooks/use-glass';
 
-const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
+interface RadialGlowProps {
+  id: string;
+  color: string;
+}
+
+function RadialGlow({ id, color }: RadialGlowProps) {
+  return (
+    <Svg height="100%" width="100%" viewBox="0 0 400 400">
+      <Defs>
+        <RadialGradient id={id} cx="50%" cy="50%" r="50%">
+          <Stop offset="0%" stopColor={color} stopOpacity="0.28" />
+          <Stop offset="62%" stopColor={color} stopOpacity="0.1" />
+          <Stop offset="100%" stopColor={color} stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+      <Circle cx="200" cy="200" r="200" fill={`url(#${id})`} />
+    </Svg>
+  );
+}
 
 export function AuroraBackground({ children }: PropsWithChildren) {
   const targetRef = useRef<ComponentRef<typeof View>>(null);
@@ -67,18 +85,15 @@ export function AuroraBackground({ children }: PropsWithChildren) {
     <GlassContext.Provider value={{ ...getGlassSupport(), targetRef }}>
       <View style={styles.container}>
         <BlurTargetView ref={targetRef} style={styles.glowLayer}>
-          <AnimatedGradient
-            colors={['rgba(45,212,191,0.24)', 'rgba(45,212,191,0)']}
-            style={[styles.glow, styles.tealGlow, tealStyle]}
-          />
-          <AnimatedGradient
-            colors={['rgba(99,102,241,0.2)', 'rgba(99,102,241,0)']}
-            style={[styles.glow, styles.indigoGlow, indigoStyle]}
-          />
-          <AnimatedGradient
-            colors={['rgba(245,179,92,0.12)', 'rgba(245,179,92,0)']}
-            style={[styles.glow, styles.amberGlow, amberStyle]}
-          />
+          <Animated.View style={[styles.glow, tealStyle]}>
+            <RadialGlow id="auroraTeal" color={Aurora.teal} />
+          </Animated.View>
+          <Animated.View style={[styles.glow, indigoStyle]}>
+            <RadialGlow id="auroraIndigo" color={Aurora.indigo} />
+          </Animated.View>
+          <Animated.View style={[styles.glow, amberStyle]}>
+            <RadialGlow id="auroraAmber" color={Aurora.amber} />
+          </Animated.View>
         </BlurTargetView>
         <View style={styles.content}>{children}</View>
       </View>
@@ -97,13 +112,9 @@ const styles = StyleSheet.create({
   },
   glow: {
     position: 'absolute',
-    width: 360,
-    height: 360,
-    borderRadius: 180,
+    width: 400,
+    height: 400,
   },
-  tealGlow: { top: -150, left: -150 },
-  indigoGlow: { top: 180, right: -180 },
-  amberGlow: { bottom: -180, left: 80 },
   content: {
     flex: 1,
   },

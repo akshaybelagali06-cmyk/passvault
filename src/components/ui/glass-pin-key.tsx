@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { PropsWithChildren } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useReducedMotion,
@@ -8,7 +8,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
-import { Aurora, Colors, Radii, Typography } from '@/constants/theme';
+import { Aurora, Radii, Typography } from '@/constants/theme';
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -46,7 +46,7 @@ export function GlassPinKey({ label, onPress, disabled = false, accessibilityLab
       }}
       style={[styles.key, animatedStyle, disabled && styles.disabled]}
     >
-      {children ?? <Text style={styles.label}>{label}</Text>}
+      {children || <Text style={styles.label}>{label}</Text>}
     </AnimatedPressable>
   );
 }
@@ -65,8 +65,9 @@ const styles = StyleSheet.create({
   },
   label: {
     ...Typography.headingLg,
-    fontFamily: 'Inter',
-    color: Colors.dark.text,
+    color: '#FFFFFF',
+    fontFamily: Platform.select({ android: 'sans-serif', default: 'Inter' }) ?? 'sans-serif',
+    fontWeight: '700',
   },
   disabled: {
     opacity: 0.45,

@@ -24,10 +24,9 @@ export function useGlass(): GlassContextValue {
 }
 
 export function getGlassSupport(): Pick<GlassContextValue, 'blurEnabled' | 'blurMethod'> {
-  const androidVersion = typeof Platform.Version === 'number' ? Platform.Version : 0;
-  const blurEnabled = Platform.OS === 'ios' || (Platform.OS === 'android' && androidVersion >= 31);
+  const blurEnabled = Platform.OS === 'ios';
   return {
     blurEnabled,
-    blurMethod: Platform.OS === 'android' ? 'dimezisBlurViewSdk31Plus' : 'none',
+    blurMethod: 'none',
   };
 }

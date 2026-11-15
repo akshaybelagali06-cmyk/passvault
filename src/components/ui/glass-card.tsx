@@ -1,4 +1,5 @@
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { PropsWithChildren } from 'react';
 import { StyleSheet, View, type ViewStyle } from 'react-native';
 
@@ -21,10 +22,16 @@ export function GlassCard({ children, style, strong = false }: GlassCardProps) {
           blurTarget={targetRef}
           intensity={28}
           tint="dark"
+          pointerEvents="none"
           style={StyleSheet.absoluteFill}
         />
       )}
-      <View style={styles.inner}>{children}</View>
+      <LinearGradient
+        colors={['rgba(255,255,255,0.07)', 'rgba(255,255,255,0.035)']}
+        pointerEvents="none"
+        style={StyleSheet.absoluteFill}
+      />
+      {children}
     </View>
   );
 }
@@ -45,8 +52,5 @@ const styles = StyleSheet.create({
   },
   strongCard: {
     backgroundColor: 'rgba(10,12,18,0.82)',
-  },
-  inner: {
-    flex: 1,
   },
 });

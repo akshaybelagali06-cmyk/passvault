@@ -44,7 +44,9 @@ export function PinPad({ onPress, onDelete, disabled = false }: PinPadProps) {
                 disabled={disabled}
                 onPress={() => handleKey(key)}
               >
-                {key === 'del' && <Ionicons name="backspace-outline" size={24} color={Colors.dark.text} />}
+                {key === 'del' ? (
+                  <Ionicons name="backspace-outline" size={24} color={Colors.dark.text} />
+                ) : null}
               </GlassPinKey>
             ),
           )}
