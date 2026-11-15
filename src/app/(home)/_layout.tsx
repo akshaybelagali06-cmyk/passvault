@@ -6,6 +6,7 @@ export default function HomeLayout() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: '#13141A' },
+        animation: 'fade',
       }}
     />
   );
