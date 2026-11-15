@@ -1,114 +1,237 @@
 /**
- * PIN service — hashing, verification, secure storage, rate-limiting.
+ * PIN service — hashing, verification, secure storage, and rate-limiting.
  *
- * Security model:
- *  - The PIN is NEVER logged, stored, or used as an encryption key.
- *  - Only the Argon2id hash + random salt + KDF params are persisted in
- *    expo-secure-store.
- *  - Failed-attempt counts and lockout timestamps are also kept in
- *    expo-secure-store so they survive app restarts.
- *  - expo-crypto is imported here to trigger its global `crypto.getRandomValues`
- *    polyfill before @noble/hashes runs.
+ * The PIN is never logged, stored, or used as an encryption key. Only the
+ * Argon2id record and lockout state are persisted in Secure Store.
  */
-
-// Must be first: triggers the global crypto.getRandomValues polyfill
 import * as ExpoCrypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import { argon2id } from '@noble/hashes/argon2.js';
+import { argon2idAsync } from '@noble/hashes/argon2.js';
 
-// ─── Storage keys ────────────────────────────────────────────────────────────
 const KEYS = {
-  PIN_HASH:    'pv:pin:hash',
-  SALT:        'pv:pin:salt',
-  PARAMS:      'pv:pin:params',
-  FAIL_COUNT:  'pv:pin:failCount',
-  FAIL_UNLOCK: 'pv:pin:failUnlockAt',
+  PIN_RECORD: 'pv:pin:record',
+  LOCKOUT: 'pv:pin:lockout',
 } as const;
 
-// ─── KDF parameters ──────────────────────────────────────────────────────────
-// t=3 iterations, m=65536 KiB (64 MiB), p=1 lane, 32-byte output.
-// Targets ~300–500 ms on a mid-range Android device.
-const KDF_PARAMS = { t: 3, m: 65536, p: 1, dkLen: 32 } as const;
+const RECORD_VERSION = 1;
+const KDF_PARAMS = { t: 2, m: 19456, p: 1, dkLen: 32 } as const;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+interface KdfParams {
+  t: number;
+  m: number;
+  p: number;
+  dkLen: number;
+}
 
-/** Generate n cryptographically-secure random bytes. */
+interface PinRecord {
+  version: number;
+  hashHex: string;
+  saltHex: string;
+  params: KdfParams;
+}
+
+interface LockoutState {
+  count: number;
+  unlockAt?: number;
+}
+
+export class PinRecordError extends Error {
+  constructor(message: string) {
+    super(`PassVault: malformed PIN record${message ? ` — ${message}` : ''}`);
+    this.name = 'PinRecordError';
+  }
+}
+
 function randomBytes(n: number): Uint8Array {
   const buf = new Uint8Array(n);
-  // expo-crypto polyfills this globally; @noble/hashes uses it internally too.
   ExpoCrypto.getRandomValues(buf);
   return buf;
 }
 
-/** Yield one event-loop turn so React can render a spinner before blocking. */
-function yieldToUI(): Promise<void> {
-  return new Promise<void>((resolve) => setTimeout(resolve, 0));
-}
-
-/**
- * Hash `pin` with Argon2id.
- * Yields to UI first so a loading spinner can appear.
- */
-async function hashPIN(pin: string, salt: Uint8Array): Promise<Uint8Array> {
-  await yieldToUI();
-  return argon2id(new TextEncoder().encode(pin), salt, KDF_PARAMS);
-}
-
-function uint8ToHex(b: Uint8Array): string {
-  return Array.from(b)
-    .map((x) => x.toString(16).padStart(2, '0'))
+function uint8ToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
 }
 
-function hexToUint8(h: string): Uint8Array {
-  const a = new Uint8Array(h.length / 2);
-  for (let i = 0; i < a.length; i++) {
-    a[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+function hexToUint8(hex: string): Uint8Array {
+  if (!/^[0-9a-f]+$/i.test(hex) || hex.length % 2 !== 0) {
+    throw new PinRecordError('hex fields are invalid');
   }
-  return a;
+
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
 }
 
-// ─── Lockout schedule ────────────────────────────────────────────────────────
-/**
- * Returns the number of milliseconds the user must wait after `failCount`
- * consecutive wrong PINs.
- *   < 3  wrong → no delay
- *   3-4  wrong → 10 s
- *   5-9  wrong → 30 s
- *  10-14 wrong → 5 min
- *  15+   wrong → 15 min
- */
-function lockoutMs(failCount: number): number {
-  if (failCount < 3)  return 0;
-  if (failCount < 5)  return 10_000;
-  if (failCount < 10) return 30_000;
-  if (failCount < 15) return 5 * 60_000;
-  return 15 * 60_000;
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-/** Returns true if a PIN has been created and stored. */
-export async function isPinSet(): Promise<boolean> {
-  const h = await SecureStore.getItemAsync(KEYS.PIN_HASH);
-  return h !== null;
+function isAllZero(bytes: Uint8Array): boolean {
+  return bytes.every((byte) => byte === 0);
 }
 
-/**
- * Hash the PIN with a fresh random salt and persist hash + salt + params.
- * Also clears any existing failed-attempt state.
- */
-export async function createPin(pin: string): Promise<void> {
+function validateParams(value: unknown): KdfParams {
+  if (!value || typeof value !== 'object') {
+    throw new PinRecordError('KDF parameters are missing');
+  }
+
+  const params = value as Record<string, unknown>;
+  const isInteger = (item: unknown): item is number =>
+    typeof item === 'number' && Number.isInteger(item) && Number.isFinite(item);
+
+  if (
+    !isInteger(params.t) || params.t < 1 || params.t > 10 ||
+    !isInteger(params.m) || params.m < 8192 || params.m > 262144 ||
+    !isInteger(params.p) || params.p < 1 || params.p > 4 ||
+    !isInteger(params.dkLen) || params.dkLen !== 32
+  ) {
+    throw new PinRecordError('KDF parameters are outside safe limits');
+  }
+
+  return {
+    t: params.t,
+    m: params.m,
+    p: params.p,
+    dkLen: params.dkLen,
+  };
+}
+
+function parseRecord(serialized: string): PinRecord {
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw new PinRecordError('JSON is invalid');
+  }
+
+  if (!value || typeof value !== 'object') {
+    throw new PinRecordError('record is not an object');
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.version !== RECORD_VERSION ||
+      typeof record.hashHex !== 'string' ||
+      typeof record.saltHex !== 'string') {
+    throw new PinRecordError('record fields are invalid');
+  }
+
+  const hash = hexToUint8(record.hashHex);
+  const salt = hexToUint8(record.saltHex);
+  if (hash.length !== 32) {
+    throw new PinRecordError('hash must be 32 bytes');
+  }
+  if (salt.length < 16 || salt.length > 64) {
+    throw new PinRecordError('salt length is invalid');
+  }
+
+  return {
+    version: RECORD_VERSION,
+    hashHex: record.hashHex,
+    saltHex: record.saltHex,
+    params: validateParams(record.params),
+  };
+}
+
+async function readRecord(): Promise<PinRecord | null> {
+  const serialized = await SecureStore.getItemAsync(KEYS.PIN_RECORD);
+  return serialized === null ? null : parseRecord(serialized);
+}
+
+async function readLockout(): Promise<LockoutState> {
+  const serialized = await SecureStore.getItemAsync(KEYS.LOCKOUT);
+  if (serialized === null) return { count: 0 };
+
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw new Error('PassVault: lockout state is invalid');
+  }
+
+  if (!value || typeof value !== 'object') {
+    throw new Error('PassVault: lockout state is invalid');
+  }
+
+  const state = value as Record<string, unknown>;
+  if (
+    typeof state.count !== 'number' ||
+    !Number.isInteger(state.count) ||
+    state.count < 0 ||
+    (state.unlockAt !== undefined &&
+      (typeof state.unlockAt !== 'number' || !Number.isFinite(state.unlockAt)))
+  ) {
+    throw new Error('PassVault: lockout state is invalid');
+  }
+
+  return { count: state.count, unlockAt: state.unlockAt };
+}
+
+async function writeLockout(state: LockoutState): Promise<void> {
+  await SecureStore.setItemAsync(KEYS.LOCKOUT, JSON.stringify(state));
+}
+
+async function hashPIN(pin: string, salt: Uint8Array, params: KdfParams): Promise<Uint8Array> {
+  const startedAt = Date.now();
+  const hash = await argon2idAsync(new TextEncoder().encode(pin), salt, params);
+  if (__DEV__) {
+    console.log(`PassVault: PIN hash took ${Date.now() - startedAt} ms`);
+  }
+  return hash;
+}
+
+function recordFrom(pinHash: Uint8Array, salt: Uint8Array): PinRecord {
+  return {
+    version: RECORD_VERSION,
+    hashHex: uint8ToHex(pinHash),
+    saltHex: uint8ToHex(salt),
+    params: KDF_PARAMS,
+  };
+}
+
+async function writePinRecord(pin: string): Promise<void> {
   const salt = randomBytes(16);
-  const hash = await hashPIN(pin, salt);
+  if (__DEV__) {
+    const sanitySalt = randomBytes(16);
+    if (isAllZero(salt) || isAllZero(sanitySalt) || sameBytes(salt, sanitySalt)) {
+      throw new Error('PassVault: random salt sanity check failed');
+    }
+  }
 
-  await SecureStore.setItemAsync(KEYS.SALT,     uint8ToHex(salt));
-  await SecureStore.setItemAsync(KEYS.PIN_HASH, uint8ToHex(hash));
-  await SecureStore.setItemAsync(KEYS.PARAMS,   JSON.stringify(KDF_PARAMS));
+  const hash = await hashPIN(pin, salt, KDF_PARAMS);
+  await SecureStore.setItemAsync(KEYS.PIN_RECORD, JSON.stringify(recordFrom(hash, salt)));
+}
 
-  // Clear any leftover lockout state
-  await SecureStore.deleteItemAsync(KEYS.FAIL_COUNT);
-  await SecureStore.deleteItemAsync(KEYS.FAIL_UNLOCK);
+export function validatePin(pin: string): string | null {
+  if (!/^\d{6}$/.test(pin)) return 'PIN must be exactly 6 digits.';
+  if (/^(\d)\1{5}$/.test(pin)) return 'PIN cannot use the same digit six times.';
+  const digits = pin.split('').map(Number);
+  const step = digits[1] - digits[0];
+  if ((step === 1 || step === -1) && digits.every((digit, index) => index === 0 || digit - digits[index - 1] === step)) {
+    return 'PIN cannot be a simple sequence.';
+  }
+  return null;
+}
+
+export async function isPinSet(): Promise<boolean> {
+  return (await readRecord()) !== null;
+}
+
+export async function createPin(pin: string): Promise<void> {
+  const validationMessage = validatePin(pin);
+  if (validationMessage) throw new Error(validationMessage);
+  if (await readRecord()) throw new Error('PassVault: a PIN already exists');
+
+  await writePinRecord(pin);
+  await SecureStore.deleteItemAsync(KEYS.LOCKOUT);
 }
 
 export type VerifyResult =
@@ -116,83 +239,74 @@ export type VerifyResult =
   | { ok: false; locked: false; attemptsUsed: number }
   | { ok: false; locked: true; lockedUntil: number };
 
-/**
- * Verify a PIN entry.
- *  - Checks lockout first (returns locked result without hashing if still locked).
- *  - Uses constant-time comparison to avoid timing attacks.
- *  - Increments fail count and sets lockout timestamp on wrong PIN.
- *  - Clears fail state on correct PIN.
- */
-export async function verifyPin(pin: string): Promise<VerifyResult> {
-  // 1. Check active lockout
-  const unlockAtStr = await SecureStore.getItemAsync(KEYS.FAIL_UNLOCK);
-  if (unlockAtStr) {
-    const unlockAt = parseInt(unlockAtStr, 10);
-    if (Date.now() < unlockAt) {
-      return { ok: false, locked: true, lockedUntil: unlockAt };
-    }
+export function lockoutMs(failCount: number): number {
+  if (failCount < 3) return 0;
+  if (failCount < 5) return 10_000;
+  if (failCount < 10) return 30_000;
+  if (failCount < 15) return 5 * 60_000;
+  return 15 * 60_000;
+}
+
+let verificationQueue: Promise<void> = Promise.resolve();
+
+async function verifyPinUnlocked(pin: string): Promise<VerifyResult> {
+  const record = await readRecord();
+  if (!record) throw new Error('PassVault: no PIN stored');
+
+  const lockout = await readLockout();
+  if (lockout.unlockAt && Date.now() < lockout.unlockAt) {
+    return { ok: false, locked: true, lockedUntil: lockout.unlockAt };
   }
 
-  // 2. Load stored hash + salt
-  const [saltHex, hashHex] = await Promise.all([
-    SecureStore.getItemAsync(KEYS.SALT),
-    SecureStore.getItemAsync(KEYS.PIN_HASH),
-  ]);
-  if (!saltHex || !hashHex) {
-    throw new Error('PassVault: no PIN stored');
+  const attemptsUsed = lockout.count + 1;
+  const delay = lockoutMs(attemptsUsed);
+  const reservedUnlockAt = delay > 0 ? Date.now() + delay : undefined;
+  await writeLockout({ count: attemptsUsed, unlockAt: reservedUnlockAt });
+
+  const candidate = await hashPIN(pin, hexToUint8(record.saltHex), record.params);
+  const stored = hexToUint8(record.hashHex);
+  let difference = 0;
+  for (let index = 0; index < stored.length; index += 1) {
+    difference |= stored[index] ^ candidate[index];
   }
 
-  // 3. Hash the candidate PIN
-  const candidate = await hashPIN(pin, hexToUint8(saltHex));
-  const stored    = hexToUint8(hashHex);
-
-  // 4. Constant-time comparison (XOR all bytes, then check sum)
-  let diff = 0;
-  for (let i = 0; i < stored.length; i++) {
-    diff |= stored[i] ^ candidate[i];
-  }
-
-  if (diff === 0) {
-    // Correct — clear fail state
-    await SecureStore.deleteItemAsync(KEYS.FAIL_COUNT);
-    await SecureStore.deleteItemAsync(KEYS.FAIL_UNLOCK);
+  if (difference === 0) {
+    await SecureStore.deleteItemAsync(KEYS.LOCKOUT);
     return { ok: true };
   }
 
-  // 5. Wrong — increment fail count
-  const countStr = await SecureStore.getItemAsync(KEYS.FAIL_COUNT);
-  const count = countStr ? parseInt(countStr, 10) + 1 : 1;
-  await SecureStore.setItemAsync(KEYS.FAIL_COUNT, String(count));
-
-  const delay = lockoutMs(count);
-  if (delay > 0) {
-    const unlockAt = Date.now() + delay;
-    await SecureStore.setItemAsync(KEYS.FAIL_UNLOCK, String(unlockAt));
-    return { ok: false, locked: true, lockedUntil: unlockAt };
+  if (reservedUnlockAt) {
+    return { ok: false, locked: true, lockedUntil: reservedUnlockAt };
   }
-
-  return { ok: false, locked: false, attemptsUsed: count };
+  return { ok: false, locked: false, attemptsUsed };
 }
 
-/**
- * Returns the current failed-attempt state.
- * Used by the lock screen to decide whether to show a countdown on mount.
- */
+export function verifyPin(pin: string): Promise<VerifyResult> {
+  const result = verificationQueue.then(() => verifyPinUnlocked(pin));
+  verificationQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+export async function changePin(oldPin: string, newPin: string): Promise<void> {
+  const validationMessage = validatePin(newPin);
+  if (validationMessage) throw new Error(validationMessage);
+
+  const result = await verifyPin(oldPin);
+  if (!result.ok) {
+    throw new Error(result.locked ? 'PassVault: PIN verification is locked' : 'PassVault: current PIN is incorrect');
+  }
+
+  await writePinRecord(newPin);
+  await SecureStore.deleteItemAsync(KEYS.LOCKOUT);
+}
+
 export async function getFailedAttemptState(): Promise<
   | { locked: false; count: number }
   | { locked: true; lockedUntil: number }
 > {
-  const [countStr, unlockAtStr] = await Promise.all([
-    SecureStore.getItemAsync(KEYS.FAIL_COUNT),
-    SecureStore.getItemAsync(KEYS.FAIL_UNLOCK),
-  ]);
-
-  if (unlockAtStr) {
-    const unlockAt = parseInt(unlockAtStr, 10);
-    if (Date.now() < unlockAt) {
-      return { locked: true, lockedUntil: unlockAt };
-    }
+  const state = await readLockout();
+  if (state.unlockAt && Date.now() < state.unlockAt) {
+    return { locked: true, lockedUntil: state.unlockAt };
   }
-
-  return { locked: false, count: countStr ? parseInt(countStr, 10) : 0 };
+  return { locked: false, count: state.count };
 }

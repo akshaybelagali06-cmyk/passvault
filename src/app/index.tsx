@@ -1,118 +1,100 @@
-/**
- * Splash screen — boot decision point.
- *
- * Shows PassVault logo + name with a fade-in animation, then:
- *   - no PIN stored → replace with /setup
- *   - PIN stored    → replace with /lock
- */
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withDelay,
-  Easing,
-} from 'react-native-reanimated';
+import { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { Colors, Radii, Spacing, Typography } from '@/constants/theme';
+import { AuroraBackground } from '@/components/ui/aurora-background';
+import { GlassButton } from '@/components/ui/glass-button';
+import { GlassCard } from '@/components/ui/glass-card';
+import { Logo } from '@/components/ui/logo';
+import { Colors, Spacing, Typography } from '@/constants/theme';
 import { isPinSet } from '@/services/pin';
 
-const BG = Colors.dark.background;
+type BootState = 'loading' | 'error';
 
 export default function SplashScreen() {
-  // Logo + text fade in
-  const logoOpacity = useSharedValue(0);
-  const logoScale   = useSharedValue(0.85);
-  const textOpacity = useSharedValue(0);
-
-  const logoStyle = useAnimatedStyle(() => ({
-    opacity: logoOpacity.value,
-    transform: [{ scale: logoScale.value }],
-  }));
-  const textStyle = useAnimatedStyle(() => ({
-    opacity: textOpacity.value,
-  }));
+  const [state, setState] = useState<BootState>('loading');
 
   useEffect(() => {
-    // Animate in — assigning to .value is the correct Reanimated v4 pattern
-    // eslint-disable-next-line react-hooks/immutability
-    logoOpacity.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.quad) });
-    // eslint-disable-next-line react-hooks/immutability
-    logoScale.value   = withTiming(1, { duration: 500, easing: Easing.out(Easing.quad) });
-    // eslint-disable-next-line react-hooks/immutability
-    textOpacity.value = withDelay(300, withTiming(1, { duration: 400 }));
-
-    // After animation, decide where to go
-    const timer = setTimeout(async () => {
-      try {
-        const pinExists = await isPinSet();
-        if (pinExists) {
-          router.replace('/lock');
-        } else {
-          router.replace('/setup');
-        }
-      } catch {
-        // If secure store fails (e.g. in bare JS env), go to setup
-        router.replace('/setup');
-      }
+    let active = true;
+    const timer = setTimeout(() => {
+      void isPinSet()
+        .then((pinExists) => {
+          if (!active) return;
+          router.replace(pinExists ? '/lock' : '/setup');
+        })
+        .catch(() => {
+          if (active) setState('error');
+        });
     }, 900);
 
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
   }, []);
 
-  return (
-    <View style={styles.container}>
-      {/* Shield icon (emoji placeholder until a real SVG asset is added) */}
-      <Animated.View style={[styles.logoWrapper, logoStyle]}>
-        <View style={styles.shieldBg}>
-          <Animated.Text style={styles.shieldEmoji}>🔐</Animated.Text>
-        </View>
-      </Animated.View>
+  const retry = () => {
+    setState('loading');
+    void isPinSet()
+      .then((pinExists) => router.replace(pinExists ? '/lock' : '/setup'))
+      .catch(() => setState('error'));
+  };
 
-      <Animated.View style={[styles.textBlock, textStyle]}>
-        <Animated.Text style={styles.appName}>PassVault</Animated.Text>
-        <Animated.Text style={styles.tagline}>Your passwords. Offline. Secure.</Animated.Text>
-      </Animated.View>
-    </View>
+  return (
+    <AuroraBackground>
+      <View style={styles.container}>
+        {state === 'error' ? (
+          <GlassCard strong style={styles.errorCard}>
+            <Ionicons name="warning-outline" size={38} color={Colors.dark.danger} />
+            <Text style={styles.title}>Could not open PassVault</Text>
+            <Text style={styles.subtitle}>
+              Your secure PIN data could not be read. Try again without creating a new PIN.
+            </Text>
+            <GlassButton onPress={retry} variant="secondary" style={styles.retry}>
+              Retry
+            </GlassButton>
+          </GlassCard>
+        ) : (
+          <>
+            <Logo size={88} />
+            <Text style={styles.title}>PassVault</Text>
+            <Text style={styles.subtitle}>Your passwords. Offline. Secure.</Text>
+          </>
+        )}
+      </View>
+    </AuroraBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BG,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.four,
+    padding: Spacing.four,
   },
-  logoWrapper: {
+  errorCard: {
+    width: '100%',
+    maxWidth: 360,
     alignItems: 'center',
-    justifyContent: 'center',
+    padding: Spacing.four,
+    gap: Spacing.two,
   },
-  shieldBg: {
-    width: 100,
-    height: 100,
-    borderRadius: Radii.xl,
-    backgroundColor: Colors.dark.accentMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shieldEmoji: {
-    fontSize: 48,
-  },
-  textBlock: {
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  appName: {
-    ...Typography.displaySm,
+  title: {
+    ...Typography.headingLg,
+    fontFamily: 'Sora-Bold',
     color: Colors.dark.text,
+    textAlign: 'center',
   },
-  tagline: {
-    ...Typography.caption,
+  subtitle: {
+    ...Typography.body,
+    fontFamily: 'Inter',
     color: Colors.dark.textSecondary,
+    textAlign: 'center',
+  },
+  retry: {
+    marginTop: Spacing.two,
+    minWidth: 140,
   },
 });

@@ -1,7 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, View } from 'react-native';
 
-import { Radii, Spacing, Typography } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Colors, Spacing } from '@/constants/theme';
+import { GlassPinKey } from '@/components/ui/glass-pin-key';
 
 const ROWS = [
   ['1', '2', '3'],
@@ -19,47 +20,39 @@ interface PinPadProps {
 }
 
 export function PinPad({ onPress, onDelete, disabled = false }: PinPadProps) {
-  const theme = useTheme();
-
   const handleKey = (key: Key) => {
-    if (disabled) return;
-    if (key === '' ) return;
-    if (key === 'del') { onDelete(); return; }
+    if (disabled || key === '') return;
+    if (key === 'del') {
+      onDelete();
+      return;
+    }
     onPress(key);
   };
 
   return (
     <View style={styles.grid}>
-      {ROWS.map((row, ri) => (
-        <View key={ri} style={styles.row}>
-          {row.map((key, ci) => (
-            <Pressable
-              key={ci}
-              onPress={() => handleKey(key)}
-              disabled={disabled || key === ''}
-              style={({ pressed }) => [
-                styles.key,
-                {
-                  backgroundColor: key === '' ? 'transparent' : theme.surface,
-                  opacity: pressed ? 0.6 : key === '' ? 0 : 1,
-                },
-              ]}
-              accessibilityLabel={key === 'del' ? 'Delete' : key === '' ? undefined : key}
-            >
-              {key !== '' && (
-                <Text style={[styles.keyText, { color: theme.text }]}>
-                  {key === 'del' ? '⌫' : key}
-                </Text>
-              )}
-            </Pressable>
-          ))}
+      {ROWS.map((row, rowIndex) => (
+        <View key={rowIndex} style={styles.row}>
+          {row.map((key, columnIndex) =>
+            key === '' ? (
+              <View key={columnIndex} style={styles.keyPlaceholder} />
+            ) : (
+              <GlassPinKey
+                key={columnIndex}
+                label={key === 'del' ? '' : key}
+                accessibilityLabel={key === 'del' ? 'Delete' : key}
+                disabled={disabled}
+                onPress={() => handleKey(key)}
+              >
+                {key === 'del' && <Ionicons name="backspace-outline" size={24} color={Colors.dark.text} />}
+              </GlassPinKey>
+            ),
+          )}
         </View>
       ))}
     </View>
   );
 }
-
-const KEY_SIZE = 72;
 
 const styles = StyleSheet.create({
   grid: {
@@ -70,14 +63,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: Spacing.two,
   },
-  key: {
-    width: KEY_SIZE,
-    height: KEY_SIZE,
-    borderRadius: Radii.full,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  keyText: {
-    ...Typography.headingLg,
+  keyPlaceholder: {
+    width: 72,
+    height: 64,
   },
 });

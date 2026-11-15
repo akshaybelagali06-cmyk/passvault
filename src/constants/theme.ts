@@ -4,16 +4,16 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   dark: {
-    background:        '#13141A',
-    surface:           '#1E2029',
-    surfaceHighlight:  '#272A35',
-    border:            '#2E3140',
-    text:              '#F0F1F5',
-    textSecondary:     '#8B90A0',
-    accent:            '#6C8EF5',
-    accentMuted:       '#3D4A8A',
-    danger:            '#E05C5C',
-    success:           '#5CB87E',
+    background:        '#0A0C12',
+    surface:           '#1A1D26',
+    surfaceHighlight:  '#252A35',
+    border:            '#39404F',
+    text:              '#F7F8FC',
+    textSecondary:     '#B4BAC8',
+    accent:            '#2DD4BF',
+    accentMuted:       '#164C50',
+    danger:            '#FF7A7A',
+    success:           '#63D69A',
     // legacy compat keys used by ThemedView / ThemedText
     backgroundElement: '#1E2029',
     backgroundSelected:'#272A35',
@@ -38,21 +38,21 @@ export type ThemeColor = keyof typeof Colors.dark & keyof typeof Colors.light;
 
 export const Fonts = Platform.select({
   ios: {
-    sans:    'system-ui',
+    sans:    'Inter',
     serif:   'ui-serif',
-    rounded: 'ui-rounded',
+    rounded: 'Sora',
     mono:    'ui-monospace',
   },
   default: {
-    sans:    'normal',
+    sans:    'Inter',
     serif:   'serif',
-    rounded: 'normal',
+    rounded: 'Sora',
     mono:    'monospace',
   },
   web: {
-    sans:    'var(--font-display)',
+    sans:    'Inter',
     serif:   'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
+    rounded: 'Sora',
     mono:    'var(--font-mono)',
   },
 });
@@ -87,3 +87,13 @@ export const Typography = {
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 800;
+
+export const Aurora = {
+  ink: '#0A0C12',
+  teal: '#2DD4BF',
+  indigo: '#6366F1',
+  amber: '#F5B35C',
+  glass: 'rgba(255,255,255,0.08)',
+  glassStrong: 'rgba(255,255,255,0.12)',
+  glassBorder: 'rgba(255,255,255,0.16)',
+} as const;

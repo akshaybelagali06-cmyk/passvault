@@ -2,43 +2,38 @@ import { useEffect, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import Animated, {
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withSequence,
-  withTiming,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 
-import { Colors, Radii, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { Aurora, Colors, Radii, Spacing } from '@/constants/theme';
 
 interface PinDotsProps {
-  length: number;    // number of digits entered (0–6)
-  error?: boolean;   // when true, dots pulse red
+  length: number;
+  error?: boolean;
   maxLength?: number;
 }
 
-const DOT_SIZE = 14;
-const DOT_GAP  = 20;
-
 export function PinDots({ length, error = false, maxLength = 6 }: PinDotsProps) {
-  const theme = useTheme();
-  // Horizontal shake offset
   const shakeX = useSharedValue(0);
-  const prevError = useRef(false);
+  const previousError = useRef(false);
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    if (error && !prevError.current) {
-      // Shake animation: bounce left-right
+    if (error && !previousError.current && !reduceMotion) {
       shakeX.value = withSequence(
-        withTiming(-8,  { duration: 60 }),
-        withTiming( 8,  { duration: 60 }),
-        withTiming(-6,  { duration: 60 }),
-        withTiming( 6,  { duration: 60 }),
-        withTiming( 0,  { duration: 60 }),
+        withTiming(-8, { duration: 60 }),
+        withTiming(8, { duration: 60 }),
+        withTiming(-6, { duration: 60 }),
+        withTiming(6, { duration: 60 }),
+        withTiming(0, { duration: 60 }),
       );
     }
-    prevError.current = error;
-  }, [error, shakeX]);
+    previousError.current = error;
+  }, [error, reduceMotion, shakeX]);
 
   const rowStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: shakeX.value }],
@@ -46,13 +41,8 @@ export function PinDots({ length, error = false, maxLength = 6 }: PinDotsProps) 
 
   return (
     <Animated.View style={[styles.row, rowStyle]}>
-      {Array.from({ length: maxLength }).map((_, i) => (
-        <Dot
-          key={i}
-          filled={i < length}
-          error={error}
-          theme={theme}
-        />
+      {Array.from({ length: maxLength }).map((_, index) => (
+        <Dot key={index} filled={index < length} error={error} reduceMotion={reduceMotion} />
       ))}
     </Animated.View>
   );
@@ -61,40 +51,34 @@ export function PinDots({ length, error = false, maxLength = 6 }: PinDotsProps) 
 interface DotProps {
   filled: boolean;
   error: boolean;
-  theme: ReturnType<typeof useTheme>;
+  reduceMotion: boolean | null;
 }
 
-function Dot({ filled, error, theme }: DotProps) {
+function Dot({ filled, error, reduceMotion }: DotProps) {
   const scale = useSharedValue(1);
-  const prevFilled = useRef(false);
+  const previousFilled = useRef(false);
 
   useEffect(() => {
-    if (filled && !prevFilled.current) {
-      // Pop animation when a digit is added
+    if (filled && !previousFilled.current && !reduceMotion) {
       scale.value = withSequence(
         withSpring(1.3, { damping: 6, stiffness: 300 }),
-        withSpring(1.0, { damping: 10, stiffness: 300 }),
+        withSpring(1, { damping: 10, stiffness: 300 }),
       );
     }
-    prevFilled.current = filled;
-  }, [filled, scale]);
+    previousFilled.current = filled;
+  }, [filled, reduceMotion, scale]);
 
-  const animStyle = useAnimatedStyle(() => ({
+  const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
-
-  const fillColor = error
-    ? Colors.dark.danger
-    : filled
-      ? theme.accent
-      : theme.border;
+  const fillColor = error ? Colors.dark.danger : filled ? Aurora.teal : 'transparent';
 
   return (
     <Animated.View
       style={[
         styles.dot,
-        { backgroundColor: fillColor, borderColor: theme.border },
-        animStyle,
+        { backgroundColor: fillColor, borderColor: error ? Colors.dark.danger : Aurora.glassBorder },
+        animatedStyle,
       ]}
     />
   );
@@ -103,14 +87,14 @@ function Dot({ filled, error, theme }: DotProps) {
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    gap: DOT_GAP,
+    gap: 20,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.two,
   },
   dot: {
-    width: DOT_SIZE,
-    height: DOT_SIZE,
+    width: 14,
+    height: 14,
     borderRadius: Radii.full,
     borderWidth: 1.5,
   },
