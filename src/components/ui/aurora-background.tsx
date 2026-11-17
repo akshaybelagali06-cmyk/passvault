@@ -1,7 +1,6 @@
-import { BlurTargetView } from 'expo-blur';
-import { PropsWithChildren, useEffect, useRef, type ComponentRef } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { BlurTargetView } from "expo-blur";
+import { PropsWithChildren, useEffect, useRef, type ComponentRef } from "react";
+import { StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -9,10 +8,11 @@ import Animated, {
   useSharedValue,
   withRepeat,
   withTiming,
-} from 'react-native-reanimated';
+} from "react-native-reanimated";
+import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 
-import { Aurora } from '@/constants/theme';
-import { GlassContext, getGlassSupport } from '@/hooks/use-glass';
+import { Aurora } from "@/constants/theme";
+import { GlassContext, getGlassSupport } from "@/hooks/use-glass";
 
 interface RadialGlowProps {
   id: string;
@@ -108,10 +108,10 @@ const styles = StyleSheet.create({
   },
   glowLayer: {
     ...StyleSheet.absoluteFill,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   glow: {
-    position: 'absolute',
+    position: "absolute",
     width: 400,
     height: 400,
   },
